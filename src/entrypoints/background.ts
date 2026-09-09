@@ -13,9 +13,13 @@ export default defineBackground(() => {
 
   browser.action.onClicked.addListener(handleActionClick);
 
-  browser.runtime.onMessage.addListener((message) => {
-    if (message?.type === "CAPTURE_VISIBLE_TAB") {
-      return browser.tabs.captureVisibleTab({ format: "png" });
+  browser.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type !== "CAPTURE_VISIBLE_TAB") return;
+
+    const windowId = sender.tab?.windowId;
+    if (windowId != null) {
+      return browser.tabs.captureVisibleTab(windowId, { format: "png" });
     }
+    return browser.tabs.captureVisibleTab({ format: "png" });
   });
 });

@@ -38,6 +38,7 @@ import { PencilPopover } from "@/components/popovers/pencil-popover";
 import { TextPopover } from "@/components/popovers/text-popover";
 import { Button } from "@/components/ui/button";
 import { useFabricCanvas } from "@/context/fabric-canvas/use-fabric-canvas";
+import { isCaptureInProgress } from "@/lib/capture";
 import {
   getErrorMessage,
   getOS,
@@ -96,7 +97,7 @@ interface SecondaryToolbarItem {
 const secondaryToolbarItems: SecondaryToolbarItem[] = [
   {
     name: "Copy",
-    description: "Copy canvas to clipboard",
+    description: "Copy screenshot to clipboard",
     icon: Copy,
     onClick: handleCopyToClipboard,
   },
@@ -296,15 +297,17 @@ export function Toolbar({
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
         e.preventDefault();
-        if (!timersRef.current.has("Copy")) {
-          try {
-            const didCopy = await handleCopyToClipboard(fcRef, toolbarRef);
-            startCooldown("Copy", didCopy);
-          } catch (error) {
-            const errorMessage = getErrorMessage(error);
-            console.error("Error copying to clipboard:", errorMessage);
-            startCooldown("Copy", false);
-          }
+        if (timersRef.current.has("Copy") || isCaptureInProgress()) {
+          return;
+        }
+        setCooldowns((prev) => new Map(prev).set("Copy", false));
+        try {
+          const didCopy = await handleCopyToClipboard(fcRef, toolbarRef);
+          startCooldown("Copy", didCopy);
+        } catch (error) {
+          const errorMessage = getErrorMessage(error);
+          console.error("Error copying to clipboard:", errorMessage);
+          startCooldown("Copy", false);
         }
         return;
       }
@@ -444,7 +447,7 @@ export function Toolbar({
               const isCopyConfirming =
                 item.name === "Copy" && cooldowns.get("Copy") === true;
               const label = isCopyConfirming
-                ? "Copied canvas to clipboard"
+                ? "Copied screenshot to clipboard"
                 : item.description;
 
               return (
@@ -453,9 +456,16 @@ export function Toolbar({
                   variant="ghost"
                   disabled={cooldowns.has(item.name)}
                   onClick={async () => {
-                    startCooldown(item.name, false);
-                    const result = await item.onClick(fcRef, toolbarRef);
-                    startCooldown(item.name, result);
+                    if (cooldowns.has(item.name) || isCaptureInProgress()) {
+                      return;
+                    }
+                    setCooldowns((prev) => new Map(prev).set(item.name, false));
+                    try {
+                      const result = await item.onClick(fcRef, toolbarRef);
+                      startCooldown(item.name, result);
+                    } catch {
+                      startCooldown(item.name, false);
+                    }
                     setOpenPopoverId(null);
                   }}
                   className={cn(
@@ -481,8 +491,8 @@ export function Toolbar({
           <span role="status" aria-live="polite" className="sr-only">
             {cooldowns.has("Copy")
               ? cooldowns.get("Copy")
-                ? "Copied canvas to clipboard"
-                : "Failed to copy canvas to clipboard"
+                ? "Copied screenshot to clipboard"
+                : "Failed to copy screenshot to clipboard"
               : ""}
           </span>
         </m.div>

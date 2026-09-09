@@ -20,6 +20,7 @@ import { useEraserPopover } from "@/context/toolbar/eraser-popover/use-eraser-po
 import { useFramePopover } from "@/context/toolbar/frame/use-frame-popover";
 import { usePencilPopover } from "@/context/toolbar/pencil-popover/use-pencil-popover";
 import { useTextPopover } from "@/context/toolbar/text-popover/use-text-popover";
+import { isCaptureInProgress } from "@/lib/capture";
 import { getCanvasCoordinates } from "@/lib/helpers";
 
 const CANVAS_LAG_WARNING_HEIGHT = 16250;
@@ -232,7 +233,10 @@ export function Canvas({
     const handleResizeDimensions = () => initializeCanvasDimensions(fc);
 
     // Update height of canvas on scroll
-    const handleScroll = () => updateDynamicCanvasHeight(fc);
+    const handleScroll = () => {
+      if (isCaptureInProgress()) return;
+      updateDynamicCanvasHeight(fc);
+    };
 
     let resizeTimeoutId: ReturnType<typeof setTimeout>;
     const resizeObserver = new ResizeObserver(() => {

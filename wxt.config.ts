@@ -17,7 +17,16 @@ export default defineConfig({
       "A Chrome extension that lets you draw over any webpage and export/copy the result as an image.",
     version: "1.0.3",
     action: {
-      default_title: "Open Tracemark",
+      default_title: "Toggle Tracemark",
+    },
+    commands: {
+      _execute_action: {
+        suggested_key: {
+          default: "Alt+Shift+D",
+          mac: "Alt+Shift+D",
+        },
+        description: "Toggle Tracemark on the current tab",
+      },
     },
     icons: {
       16: "icon16.png",
