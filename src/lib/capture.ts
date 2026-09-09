@@ -70,6 +70,16 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
   });
 }
 
+async function captureVisibleTabPngOnce() {
+  const dataUrl: unknown = await browser.runtime.sendMessage({
+    type: "CAPTURE_VISIBLE_TAB",
+  });
+  if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+    return dataUrl;
+  }
+  throw new Error("Visible tab capture returned an empty result");
+}
+
 /**
  * Asks the background worker to screenshot the visible tab, retrying if Chrome
  * rate-limits `captureVisibleTab`.
@@ -79,13 +89,7 @@ async function captureVisibleTabPng() {
 
   for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt++) {
     try {
-      const dataUrl: unknown = await browser.runtime.sendMessage({
-        type: "CAPTURE_VISIBLE_TAB",
-      });
-      if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
-        return dataUrl;
-      }
-      throw new Error("Visible tab capture returned an empty result");
+      return await captureVisibleTabPngOnce();
     } catch (error) {
       lastError = error;
       await delay(CAPTURE_RETRY_DELAY_MS * (attempt + 1));
@@ -193,17 +197,40 @@ function removeFreezeOverlay(overlay: HTMLElement | null) {
 }
 
 /**
+ * Removes any freeze still left on the page. Called when Tracemark closes so
+ * Esc / the toolbar toggle cannot leave a wait-cursor overlay behind.
+ */
+export function removeCaptureFreezeOverlays() {
+  document
+    .querySelectorAll<HTMLElement>(`[${FREEZE_OVERLAY_ATTR}]`)
+    .forEach(removeFreezeOverlay);
+}
+
+/**
  * Scrolls and paints while the freeze overlay still covers the tab, then hides
- * it for a single frame so `captureVisibleTab` sees the real page.
+ * it just long enough for one `captureVisibleTab` attempt so the real page is
+ * visible. The still is restored before retry backoff, so a rate-limited first
+ * slice does not uncover the jumped page or drop scroll locking.
  */
 async function captureSliceBehindFreeze(overlay: HTMLElement) {
-  overlay.style.visibility = "hidden";
-  await nextPaint();
-  try {
-    return await captureVisibleTabPng();
-  } finally {
-    overlay.style.visibility = "visible";
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_CAPTURE_ATTEMPTS; attempt++) {
+    try {
+      overlay.style.visibility = "hidden";
+      await nextPaint();
+      return await captureVisibleTabPngOnce();
+    } catch (error) {
+      lastError = error;
+    } finally {
+      overlay.style.visibility = "visible";
+    }
+    await delay(CAPTURE_RETRY_DELAY_MS * (attempt + 1));
   }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Visible tab capture failed");
 }
 
 /**

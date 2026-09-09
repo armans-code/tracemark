@@ -5,6 +5,7 @@ import { App } from "@/App";
 import { AppProviders } from "@/AppProviders";
 import { ShadowContainerProvider } from "@/context/shadow-dom/ShadowContainerProvider";
 import styles from "@/index.css?inline";
+import { removeCaptureFreezeOverlays } from "@/lib/capture";
 
 const HOST_ID = "tracemark-shadow-host";
 
@@ -35,6 +36,7 @@ function closeTracemark() {
   window.removeEventListener("keydown", handleEscapeToClose);
   window.__tracemark.root.unmount();
   window.__tracemark.host.remove();
+  removeCaptureFreezeOverlays();
   // @ts-expect-error - clearing the toggle sentinel
   delete window.__tracemark;
 }

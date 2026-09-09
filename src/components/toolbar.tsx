@@ -196,7 +196,9 @@ export function Toolbar({
   const [openPopoverId, setOpenPopoverId] = useState<ToolbarStates | null>(
     null
   );
-  const [cooldowns, setCooldowns] = useState<Map<string, boolean>>(new Map());
+  const [cooldowns, setCooldowns] = useState<Map<string, boolean | "pending">>(
+    new Map()
+  );
   const [shortcut, setShortcut] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const { fcRef } = useFabricCanvas();
@@ -300,7 +302,7 @@ export function Toolbar({
         if (timersRef.current.has("Copy") || isCaptureInProgress()) {
           return;
         }
-        setCooldowns((prev) => new Map(prev).set("Copy", false));
+        setCooldowns((prev) => new Map(prev).set("Copy", "pending"));
         try {
           const didCopy = await handleCopyToClipboard(fcRef, toolbarRef);
           startCooldown("Copy", didCopy);
@@ -459,7 +461,9 @@ export function Toolbar({
                     if (cooldowns.has(item.name) || isCaptureInProgress()) {
                       return;
                     }
-                    setCooldowns((prev) => new Map(prev).set(item.name, false));
+                    setCooldowns((prev) =>
+                      new Map(prev).set(item.name, "pending")
+                    );
                     try {
                       const result = await item.onClick(fcRef, toolbarRef);
                       startCooldown(item.name, result);
@@ -489,11 +493,11 @@ export function Toolbar({
             })}
           </div>
           <span role="status" aria-live="polite" className="sr-only">
-            {cooldowns.has("Copy")
-              ? cooldowns.get("Copy")
-                ? "Copied screenshot to clipboard"
-                : "Failed to copy screenshot to clipboard"
-              : ""}
+            {cooldowns.get("Copy") === true
+              ? "Copied screenshot to clipboard"
+              : cooldowns.get("Copy") === false
+                ? "Failed to copy screenshot to clipboard"
+                : ""}
           </span>
         </m.div>
       </div>
