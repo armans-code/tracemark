@@ -205,6 +205,7 @@ export function Toolbar({
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
+  const inFlightRef = useRef(new Set<string>());
 
   const startCooldown = (name: string, result: boolean) => {
     clearTimeout(timersRef.current.get(name));
@@ -220,6 +221,24 @@ export function Toolbar({
     }, SECONDARY_TOOLBAR_ITEM_COOLDOWN);
 
     timersRef.current.set(name, timeoutId);
+  };
+
+  const isCaptureAction = (name: string) =>
+    name === "Copy" || name === "Export";
+
+  const beginSecondaryAction = (name: string) => {
+    if (inFlightRef.current.has(name) || timersRef.current.has(name)) {
+      return false;
+    }
+    if (
+      isCaptureAction(name) &&
+      (inFlightRef.current.has("Copy") || inFlightRef.current.has("Export"))
+    ) {
+      return false;
+    }
+    inFlightRef.current.add(name);
+    setCooldowns((prev) => new Map(prev).set(name, false));
+    return true;
   };
 
   function renderSecondaryIcons(
@@ -296,15 +315,24 @@ export function Toolbar({
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
         e.preventDefault();
-        if (!timersRef.current.has("Copy")) {
-          try {
-            const didCopy = await handleCopyToClipboard(fcRef, toolbarRef);
-            startCooldown("Copy", didCopy);
-          } catch (error) {
-            const errorMessage = getErrorMessage(error);
-            console.error("Error copying to clipboard:", errorMessage);
-            startCooldown("Copy", false);
-          }
+        if (
+          timersRef.current.has("Copy") ||
+          inFlightRef.current.has("Copy") ||
+          inFlightRef.current.has("Export")
+        ) {
+          return;
+        }
+        inFlightRef.current.add("Copy");
+        setCooldowns((prev) => new Map(prev).set("Copy", false));
+        try {
+          const didCopy = await handleCopyToClipboard(fcRef, toolbarRef);
+          startCooldown("Copy", didCopy);
+        } catch (error) {
+          const errorMessage = getErrorMessage(error);
+          console.error("Error copying to clipboard:", errorMessage);
+          startCooldown("Copy", false);
+        } finally {
+          inFlightRef.current.delete("Copy");
         }
         return;
       }
@@ -451,12 +479,21 @@ export function Toolbar({
                 <Button
                   key={item.name}
                   variant="ghost"
-                  disabled={cooldowns.has(item.name)}
+                  disabled={
+                    cooldowns.has(item.name) ||
+                    (isCaptureAction(item.name) &&
+                      (inFlightRef.current.has("Copy") ||
+                        inFlightRef.current.has("Export")))
+                  }
                   onClick={async () => {
-                    startCooldown(item.name, false);
-                    const result = await item.onClick(fcRef, toolbarRef);
-                    startCooldown(item.name, result);
-                    setOpenPopoverId(null);
+                    if (!beginSecondaryAction(item.name)) return;
+                    try {
+                      const result = await item.onClick(fcRef, toolbarRef);
+                      startCooldown(item.name, result);
+                      setOpenPopoverId(null);
+                    } finally {
+                      inFlightRef.current.delete(item.name);
+                    }
                   }}
                   className={cn(
                     "relative size-11",

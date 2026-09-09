@@ -66,9 +66,18 @@ export async function handleCopyToClipboard(
   toolbarRef: RefObject<HTMLDivElement | null>
 ) {
   try {
-    const blob = await captureAnnotatedPage(fcRef, toolbarRef);
-    if (!blob) return false;
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    // Pass a Promise into ClipboardItem so Chrome extends the user-activation
+    // window across the (possibly multi-second) stitch instead of requiring
+    // the write to happen within ~5s of the click/shortcut.
+    const blobPromise = captureAnnotatedPage(fcRef, toolbarRef).then((blob) => {
+      if (!blob) {
+        throw new Error("Failed to capture annotated page");
+      }
+      return blob;
+    });
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blobPromise }),
+    ]);
     return true;
   } catch (error) {
     const errorMessage = getErrorMessage(error);

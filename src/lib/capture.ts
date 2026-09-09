@@ -249,22 +249,25 @@ async function stitchFullPageCapture(captureHeight: number) {
  * @param fcRef - Ref to the Fabric canvas.
  * @param toolbarRef - Ref to the toolbar root, also used to find the popovers
  * to hide.
- * @returns A PNG blob, or `undefined` if the canvas or toolbar isn't mounted
- * or the capture failed.
+ * @returns A PNG blob, or `undefined` if the canvas or toolbar isn't mounted,
+ * a capture is already running, or the capture failed.
  */
 export async function captureAnnotatedPage(
   fcRef: RefObject<FabricCanvas | null>,
   toolbarRef: RefObject<HTMLDivElement | null>
 ) {
+  // Stitching mutates scroll; a second copy/export would interleave frames.
+  if (captureInProgress) return;
+
   const fc = fcRef.current;
   const toolbar = toolbarRef.current;
   if (!fc || !toolbar) return;
 
   const elementsToHide = hideCaptureUi(fc, toolbar);
   captureInProgress = true;
-  await nextPaint();
 
   try {
+    await nextPaint();
     const captureHeight = fc.getHeight();
     if (
       captureHeight > window.innerHeight + 1 &&
