@@ -8,12 +8,13 @@ const CAPTURE_RETRY_DELAY_MS = 400;
 const MAX_CAPTURE_ATTEMPTS = 5;
 /** Browsers reject canvases much larger than this on a side. */
 const MAX_OUTPUT_DIMENSION = 16384;
+const FREEZE_OVERLAY_ATTR = "data-tracemark-capture-freeze";
 
 let captureInProgress = false;
 
 /**
- * True while a copy/export capture is scrolling the page to stitch frames.
- * The canvas scroll listener skips growing the overlay during that window.
+ * True while a copy/export capture is running. The canvas scroll listener
+ * skips growing the overlay during that window.
  */
 export function isCaptureInProgress() {
   return captureInProgress;
@@ -139,6 +140,72 @@ function restoreCaptureUi(elementsToHide: HTMLDivElement[]) {
   });
 }
 
+function preventOverlayScroll(event: Event) {
+  event.preventDefault();
+}
+
+/**
+ * Pins a still of the current viewport over the tab so stitching can scroll
+ * the real page underneath without the view jumping around.
+ */
+function mountFreezeOverlay(dataUrl: string) {
+  const overlay = document.createElement("div");
+  overlay.setAttribute(FREEZE_OVERLAY_ATTR, "");
+  overlay.setAttribute("aria-hidden", "true");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    width: "100vw",
+    height: "100vh",
+    zIndex: "2147483647",
+    background: "#000",
+    cursor: "wait",
+  });
+
+  const img = document.createElement("img");
+  img.src = dataUrl;
+  img.alt = "";
+  img.draggable = false;
+  Object.assign(img.style, {
+    width: "100%",
+    height: "100%",
+    objectFit: "fill",
+    pointerEvents: "none",
+    userSelect: "none",
+  });
+  overlay.appendChild(img);
+
+  overlay.addEventListener("wheel", preventOverlayScroll, { passive: false });
+  overlay.addEventListener("touchmove", preventOverlayScroll, {
+    passive: false,
+  });
+
+  document.documentElement.appendChild(overlay);
+  return overlay;
+}
+
+function removeFreezeOverlay(overlay: HTMLElement | null) {
+  if (!overlay) return;
+  overlay.removeEventListener("wheel", preventOverlayScroll);
+  overlay.removeEventListener("touchmove", preventOverlayScroll);
+  overlay.remove();
+}
+
+/**
+ * Scrolls and paints while the freeze overlay still covers the tab, then hides
+ * it for a single frame so `captureVisibleTab` sees the real page.
+ */
+async function captureSliceBehindFreeze(overlay: HTMLElement) {
+  overlay.style.visibility = "hidden";
+  await nextPaint();
+  try {
+    return await captureVisibleTabPng();
+  } finally {
+    overlay.style.visibility = "visible";
+  }
+}
+
 /**
  * Scroll tops that cover `captureHeight` without scrolling past the last page
  * of the region. The last value is clamped so the canvas height listener does
@@ -161,14 +228,19 @@ export function getCaptureScrollTops(
   return tops;
 }
 
-async function stitchFullPageCapture(captureHeight: number) {
+async function stitchFullPageCapture(
+  captureHeight: number,
+  overlay: HTMLElement
+) {
   const viewportHeight = window.innerHeight;
   const originalX = window.scrollX;
   const originalY = window.scrollY;
   const html = document.documentElement;
   const previousScrollBehavior = html.style.scrollBehavior;
+  const previousOverflowAnchor = html.style.overflowAnchor;
 
   html.style.scrollBehavior = "auto";
+  html.style.overflowAnchor = "none";
 
   try {
     const scrollTops = getCaptureScrollTops(captureHeight, viewportHeight);
@@ -179,7 +251,7 @@ async function stitchFullPageCapture(captureHeight: number) {
       await nextPaint();
       await delay(CAPTURE_SETTLE_MS);
 
-      const dataUrl = await captureVisibleTabPng();
+      const dataUrl = await captureSliceBehindFreeze(overlay);
       const img = await loadImage(dataUrl);
       frames.push({ img, scrollY: window.scrollY });
     }
@@ -231,6 +303,47 @@ async function stitchFullPageCapture(captureHeight: number) {
       behavior: "instant",
     });
     html.style.scrollBehavior = previousScrollBehavior;
+    html.style.overflowAnchor = previousOverflowAnchor;
+  }
+}
+
+async function captureAnnotatedPageUnlocked(
+  fcRef: RefObject<FabricCanvas | null>,
+  toolbarRef: RefObject<HTMLDivElement | null>
+) {
+  const fc = fcRef.current;
+  const toolbar = toolbarRef.current;
+  if (!fc || !toolbar) return;
+
+  let freezeOverlay: HTMLElement | null = null;
+  let elementsToHide: HTMLDivElement[] = [];
+
+  try {
+    const captureHeight = fc.getHeight();
+    const needsFullPage =
+      captureHeight > window.innerHeight + 1 && hasDrawingsOutsideViewport(fc);
+
+    if (needsFullPage) {
+      const freezeFrame = await captureVisibleTabPng();
+      freezeOverlay = mountFreezeOverlay(freezeFrame);
+      await loadImage(freezeFrame);
+      await nextPaint();
+    }
+
+    elementsToHide = hideCaptureUi(fc, toolbar);
+    await nextPaint();
+
+    if (needsFullPage && freezeOverlay) {
+      return await stitchFullPageCapture(captureHeight, freezeOverlay);
+    }
+
+    const dataUrl = await captureVisibleTabPng();
+    return await dataUrlToBlob(dataUrl);
+  } catch (error) {
+    console.error("Error capturing annotated page:", getErrorMessage(error));
+  } finally {
+    restoreCaptureUi(elementsToHide);
+    removeFreezeOverlay(freezeOverlay);
   }
 }
 
@@ -241,10 +354,11 @@ async function stitchFullPageCapture(captureHeight: number) {
  * @remarks
  * Hides the toolbar and any open popover, drops the active selection so its
  * handles aren't baked into the image, waits for the paint, then asks the
- * background worker to capture. If drawings sit outside the viewport, the page
- * is scrolled in viewport-sized slices and stitched into one PNG covering the
- * overlay from the top of the document through the canvas height. Hidden
- * elements and the original scroll position are always restored.
+ * background worker to capture. If drawings sit outside the viewport, a still
+ * of the current view is pinned over the tab, the page is scrolled in
+ * viewport-sized slices underneath it, and those frames are stitched into one
+ * PNG. Hidden elements and the original scroll position are always restored
+ * before the still is lifted, so the view does not jump.
  *
  * @param fcRef - Ref to the Fabric canvas.
  * @param toolbarRef - Ref to the toolbar root, also used to find the popovers
@@ -256,29 +370,12 @@ export async function captureAnnotatedPage(
   fcRef: RefObject<FabricCanvas | null>,
   toolbarRef: RefObject<HTMLDivElement | null>
 ) {
-  const fc = fcRef.current;
-  const toolbar = toolbarRef.current;
-  if (!fc || !toolbar) return;
+  if (captureInProgress) return;
 
-  const elementsToHide = hideCaptureUi(fc, toolbar);
   captureInProgress = true;
-  await nextPaint();
-
   try {
-    const captureHeight = fc.getHeight();
-    if (
-      captureHeight > window.innerHeight + 1 &&
-      hasDrawingsOutsideViewport(fc)
-    ) {
-      return await stitchFullPageCapture(captureHeight);
-    }
-
-    const dataUrl = await captureVisibleTabPng();
-    return await dataUrlToBlob(dataUrl);
-  } catch (error) {
-    console.error("Error capturing annotated page:", getErrorMessage(error));
+    return await captureAnnotatedPageUnlocked(fcRef, toolbarRef);
   } finally {
     captureInProgress = false;
-    restoreCaptureUi(elementsToHide);
   }
 }

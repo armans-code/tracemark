@@ -66,9 +66,18 @@ export async function handleCopyToClipboard(
   toolbarRef: RefObject<HTMLDivElement | null>
 ) {
   try {
-    const blob = await captureAnnotatedPage(fcRef, toolbarRef);
-    if (!blob) return false;
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    // Pass a Promise into ClipboardItem so the write is tied to this user
+    // gesture. Full-page stitches can take longer than Chrome's ~5s transient
+    // activation window; waiting to write afterwards would fail.
+    const blobPromise = captureAnnotatedPage(fcRef, toolbarRef).then((blob) => {
+      if (!blob) {
+        throw new Error("Capture failed");
+      }
+      return blob;
+    });
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blobPromise }),
+    ]);
     return true;
   } catch (error) {
     const errorMessage = getErrorMessage(error);
