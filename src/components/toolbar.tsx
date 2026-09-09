@@ -96,7 +96,7 @@ interface SecondaryToolbarItem {
 const secondaryToolbarItems: SecondaryToolbarItem[] = [
   {
     name: "Copy",
-    description: "Copy canvas to clipboard",
+    description: "Copy screenshot to clipboard",
     icon: Copy,
     onClick: handleCopyToClipboard,
   },
@@ -444,7 +444,7 @@ export function Toolbar({
               const isCopyConfirming =
                 item.name === "Copy" && cooldowns.get("Copy") === true;
               const label = isCopyConfirming
-                ? "Copied canvas to clipboard"
+                ? "Copied screenshot to clipboard"
                 : item.description;
 
               return (
@@ -481,8 +481,8 @@ export function Toolbar({
           <span role="status" aria-live="polite" className="sr-only">
             {cooldowns.has("Copy")
               ? cooldowns.get("Copy")
-                ? "Copied canvas to clipboard"
-                : "Failed to copy canvas to clipboard"
+                ? "Copied screenshot to clipboard"
+                : "Failed to copy screenshot to clipboard"
               : ""}
           </span>
         </m.div>

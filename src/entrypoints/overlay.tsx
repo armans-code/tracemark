@@ -14,6 +14,31 @@ declare global {
   }
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  );
+}
+
+function handleEscapeToClose(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (isEditableTarget(event.target)) return;
+
+  event.preventDefault();
+  closeTracemark();
+}
+
+function closeTracemark() {
+  window.removeEventListener("keydown", handleEscapeToClose);
+  window.__tracemark.root.unmount();
+  window.__tracemark.host.remove();
+  // @ts-expect-error - clearing the toggle sentinel
+  delete window.__tracemark;
+}
+
 function injectTracemarkContent(root: ShadowRoot) {
   const tracemarkContentContainer = document.createElement("div");
   tracemarkContentContainer.id = "tracemark-content-container";
@@ -77,13 +102,7 @@ function openTracemark() {
   const tracemarkRoot = injectTracemarkContent(shadowRoot);
   window.__tracemark = { root: tracemarkRoot, host: rootContainer };
   document.body.appendChild(rootContainer);
-}
-
-function closeTracemark() {
-  window.__tracemark.root.unmount();
-  window.__tracemark.host.remove();
-  // @ts-expect-error - clearing the toggle sentinel
-  delete window.__tracemark;
+  window.addEventListener("keydown", handleEscapeToClose);
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

@@ -14,7 +14,8 @@ Tracemark injects a full-page drawing overlay into the active tab. Annotate anyt
 
 - **Draw over any page** — pencil, line, frame, text, eraser, and a color picker.
 - **Edit as you go** — undo, redo, group, and delete your objects.
-- **Capture in one click** — copy to clipboard or export as PNG.
+- **Capture in one click** — copy to clipboard or export as PNG. If drawings sit above or below the viewport, Tracemark stitches a full-page screenshot so they aren't cropped.
+- **Toggle from the keyboard** — `Alt+Shift+D` (Option+Shift+D on Mac) opens or closes Tracemark on the current tab. Customize it at `chrome://extensions/shortcuts`. Press `Esc` to close while the overlay is open.
 - **Stays out of your way** — draggable toolbar, `1`–`7` tool shortcuts, and Interact / Select modes.
 - **Private by design** — runs only on the tab you activate, entirely in your browser.
 
@@ -79,7 +80,7 @@ src/
 
 ## How It Works
 
-Clicking the toolbar icon injects an overlay entrypoint into the active tab. The overlay mounts a React app inside a Shadow DOM container, isolating the extension's styles from the host page. A Fabric.js canvas sits on top of the page, and toolbar tools drive canvas state through React context providers. On export, the canvas is serialized to an image for download or clipboard copy.
+Clicking the toolbar icon injects an overlay entrypoint into the active tab. The overlay mounts a React app inside a Shadow DOM container, isolating the extension's styles from the host page. A Fabric.js canvas sits on top of the page, and toolbar tools drive canvas state through React context providers. On export, the visible tab is captured (with the toolbar hidden). If annotations extend outside the viewport, Tracemark scrolls the page in slices and stitches them into one PNG so off-screen drawings are included.
 
 ## License
 
